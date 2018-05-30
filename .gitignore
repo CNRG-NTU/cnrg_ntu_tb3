@@ -1,10 +1,19 @@
 *.DS_Store
 *.pyc
+*.exe
+*.wav
+*.dat
+
 100features_20context_20mincount_zht*
 
-ipem_module/dev_src/*.dat
-*.exe
+ipem_module/dev_src/
 
 card_game/scripts/\.idea/workspace\.xml
 
 card_game/scripts/\.idea/
+
+*.mp3
+
+card_game/scripts/log/
+
+card_game/scripts/static/images/

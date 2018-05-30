@@ -18,6 +18,7 @@ PUB_TOPIC_NAME = '/central_auditory_model/mso_stream'
 SUB_TOPIC_NAME = '/ipem_module/apm_stream'
 SAMPLE_RATE = 11025
 CHUNK_SIZE = 1024
+SIM_CHUNK_SIZE = CHUNK_SIZE
 N_SUBCHANNELS = 40
 MAX_DELAY = 5.
 MAX_STEPS = int(MAX_DELAY * SAMPLE_RATE)
@@ -28,53 +29,51 @@ N_DELAY_VAL = len(DELAY_STEPS)
 MAXPOOLING = 100
 
 
-synapse1 = 0
-synapse2 = 0
-synapse3 = 0
+synapse_node_ens = 0
+synapse_ens_node = 0
+synapse_probe = 0
 
-radius_1 = 1
-radius_2 = 2
+radius_ens = 2
 
 
 def build_nengo_model():
     lifrate_model = nengo.LIFRate(tau_rc=0.002, tau_ref=0.0002)
     max_r = nengo.dists.Uniform(1000, 2000)
 
-    def MSO_ensemble_array(dim, radius, label='ens_arr'):
-        return nengo.networks.EnsembleArray(n_neurons=32, n_ensembles=dim, ens_dimensions=1, label=label,
-                                            radius=radius, neuron_type=lifrate_model, max_rates=max_r, seed=None)
+    with nengo.Network(label="MSO_Jeffress_Model") as model:
+        n_neurons = 32
 
-    with nengo.Network(label="MSO_Jeffress_Model_Multi_Channel") as model:
-        input_node_L = nengo.Node([0]*N_SUBCHANNELS, label='input_node_L')
-        input_node_R = nengo.Node([0]*N_SUBCHANNELS, label='input_node_R')
+        input_node_L = nengo.Node([0], label='input_node_L')
+        input_node_R = nengo.Node([0], label='input_node_R')
 
-        ens_arr_L = MSO_ensemble_array(N_SUBCHANNELS, radius_1, 'ens_arr_L')
-        ens_arr_R = MSO_ensemble_array(N_SUBCHANNELS, radius_1, 'ens_arr_R')
-        ens_arr_add = MSO_ensemble_array(N_SUBCHANNELS, radius_2, 'ens_arr_add')            
+        ens_L = nengo.Ensemble(n_neurons, 1, radius=radius_ens, neuron_type=lifrate_model, max_rates=max_r, label='ens_L')
+        ens_R = nengo.Ensemble(n_neurons, 1, radius=radius_ens, neuron_type=lifrate_model, max_rates=max_r, label='ens_R')
 
-        nengo.Connection(input_node_L,   ens_arr_L.input, synapse=synapse1)
-        nengo.Connection(input_node_R,   ens_arr_R.input, synapse=synapse1)
-        nengo.Connection(ens_arr_L.output, ens_arr_add.input, synapse=synapse2)
-        nengo.Connection(ens_arr_R.output, ens_arr_add.input, synapse=synapse2)
+        output_node = nengo.Node(size_in=1, size_out=1, label='output_node')
 
-        ens_arr_add_probe = nengo.Probe(ens_arr_add.output, label='ens_arr_add_probe', synapse=synapse3, sample_every=0.01)
+        nengo.Connection(input_node_L, ens_L, synapse=synapse_node_ens)
+        nengo.Connection(input_node_R, ens_R, synapse=synapse_node_ens)
+        nengo.Connection(ens_L, output_node, synapse=synapse_ens_node)
+        nengo.Connection(ens_R, output_node, synapse=synapse_ens_node)
+        
+        output_probe = nengo.Probe(output_node, label='output_node_probe', synapse=synapse_probe)  # , sample_every=0.01
 
-        simulator = nengo_dl.Simulator(model, dt=(1. / SAMPLE_RATE), unroll_simulation=64, minibatch_size=N_DELAY_VAL)
+        nengo_dl.configure_settings(session_config={"gpu_options.allow_growth": True})
+        simulator = nengo_dl.Simulator(model, dt=(1. / SAMPLE_RATE), unroll_simulation=32, minibatch_size=N_DELAY_VAL * N_SUBCHANNELS)
 
-    return simulator, input_node_L, input_node_R, ens_arr_add_probe   
+    return simulator, input_node_L, input_node_R, output_probe   
 
 
-def run_MSO_model():
-    
+def run_MSO_model():    
     ani_L = np.zeros([CHUNK_SIZE, N_SUBCHANNELS])
-    ani_R = np.zeros([CHUNK_SIZE, N_SUBCHANNELS])
+    ani_R = np.zeros([CHUNK_SIZE, N_SUBCHANNELS])    
     ani_L_1d = ani_L.ravel() # create an 1-D view into ani_L, must use ravel().
     ani_R_1d = ani_R.ravel() # create an 1-D view into ani_L, must use ravel().
 
     dl_L = DelayLine((N_SUBCHANNELS,), SAMPLE_RATE, initial_value=0.05, max_delay=MAX_DELAY)
-    dl_R = DelayLine((N_SUBCHANNELS,), SAMPLE_RATE, initial_value=0.05, max_delay=MAX_DELAY)
-    in_L_data = np.zeros((N_DELAY_VAL, CHUNK_SIZE, N_SUBCHANNELS))
-    in_R_data = np.zeros((N_DELAY_VAL, CHUNK_SIZE, N_SUBCHANNELS))
+    dl_R = DelayLine((N_SUBCHANNELS,), SAMPLE_RATE, initial_value=0.05, max_delay=MAX_DELAY)    
+
+    sim, in_L, in_R, out_probe = build_nengo_model()
 
     event = threading.Event()
 
@@ -95,20 +94,12 @@ def run_MSO_model():
 
     mso_pub = rospy.Publisher(PUB_TOPIC_NAME, AuditoryNerveImage, queue_size=1)
     mso_msg = AuditoryNerveImage(sample_rate=SAMPLE_RATE / MAXPOOLING, chunk_size=N_DELAY_VAL, n_subchannels=N_SUBCHANNELS)
-
-    def mso_output_cb(t, x):
-        mso_msg.header = Header(stamp=rospy.Time.now())
-        mso_msg.left_channel = x.ravel()
-        mso_pub.publish(mso_msg)
-
-    sim, in_L, in_R, out_probe = build_nengo_model()
-    
     rospy.Subscriber(SUB_TOPIC_NAME, AuditoryNerveImage, ani_cb)
+
     rospy.loginfo('"%s" starts subscribing to "%s".' % (NODE_NAME, SUB_TOPIC_NAME))
 
     while not rospy.is_shutdown() and event.wait(1.0):
-
-        yet_to_run = dl_R.n_steps - sim.n_steps - CHUNK_SIZE
+        yet_to_run = dl_R.n_steps - sim.n_steps - SIM_CHUNK_SIZE
 
         if yet_to_run == 0:
             event.clear()
@@ -124,18 +115,21 @@ def run_MSO_model():
         #     break
 
         t2 = timeit.default_timer()
-        in_L_data[:] = dl_L.batch_view_chunk(sim.n_steps, CHUNK_SIZE, delay_steps=DELAY_STEPS)
-        in_R_data[:] = dl_R.batch_view_chunk(sim.n_steps, CHUNK_SIZE, delay_steps=DELAY_STEPS_R)        
+        in_L_data = dl_L.batch_view_chunk(sim.n_steps, SIM_CHUNK_SIZE, delay_steps=DELAY_STEPS)
+        in_R_data = dl_R.batch_view_chunk(sim.n_steps, SIM_CHUNK_SIZE, delay_steps=DELAY_STEPS_R)
+
         if (in_L_data is not None) and (in_R_data is not None):
-            print 'batch_view_chunk: ', timeit.default_timer() - t2
-            sim.run_steps(CHUNK_SIZE, progress_bar=False, input_feeds={in_L: in_L_data, in_R: in_R_data})
+            reformed_L_data = np.swapaxes(in_L_data, 1, 2).reshape((-1, SIM_CHUNK_SIZE, 1))
+            reformed_R_data = np.swapaxes(in_R_data, 1, 2).reshape((-1, SIM_CHUNK_SIZE, 1))
+            
+            sim.run_steps(SIM_CHUNK_SIZE, progress_bar=False, input_feeds={in_L: reformed_L_data, in_R: reformed_R_data})
             print sim.model.params[out_probe][-1].shape
-            print 'ran %d steps in %5.3f sec, %d steps yet to run.' % (CHUNK_SIZE, timeit.default_timer() - t2, yet_to_run)
+            print 'ran %d steps in %5.3f sec, %d steps yet to run.' % (SIM_CHUNK_SIZE, timeit.default_timer() - t2, yet_to_run)
 
 
 if __name__ == '__main__':
     try:
-        rospy.init_node(NODE_NAME, anonymous=False)
+        rospy.init_node(NODE_NAME, anonymous=True)
         run_MSO_model()
     except rospy.ROSInterruptException as e:
         rospy.logerr(e)

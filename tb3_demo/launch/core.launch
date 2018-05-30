@@ -1,7 +1,7 @@
 <launch>
   
   <!-- Args for modules -->
-  <arg name="launch_auditory" default="true"/>
+  <arg name="launch_auditory" default="false"/>
   <arg name="launch_anomaly" default="false"/>
   <arg name="launch_app_server" default="true"/>
   <arg name="launch_people_detect" default="true"/>
@@ -52,10 +52,7 @@
 
   <!-- RGB-D people detection -->
   <include file="$(find turtlebot_follower_tracker)/launch/people_detection_nodelet.launch" if="$(arg launch_people_detect)">
-    <remap from="input" to="/realsense/camera/depth/points"/>
-    <remap from="output" to="/turtlebot_people_detection/detected_people"/>
     <arg name="nodelet_manager" value="$(arg nodelet_manager)"/>
-    <rosparam file="$(find turtlebot_follower_tracker)/params/follower_tracker_params.yaml" command="load" />
   </include>
 
   <include file="$(find tb3_demo)/launch/nav.launch" if="$(arg launch_nav)">

@@ -136,6 +136,7 @@ function turn(card_id){
 
 function init(content){
 
+    pre_card_idx = -1;
 	card_num = content;
 	// var card_board = document.createElement("div");
 
@@ -310,9 +311,12 @@ function fold() {
 }
 
 function webSocket_op() {
-  
-    var wsUri = "ws://172.16.0.130:8888/socket";
-  
+
+    var script = document.getElementsByTagName("script");
+    console.log(script);
+    var address = script[script.length - 1].getAttribute("data-address");
+    var wsUri = 'ws://' + address +'/socket';
+
     websocket = new WebSocket(wsUri);
     websocket.onopen = function(evt) { 
         onOpen(evt);
