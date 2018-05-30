@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 from rospy import init_node, is_shutdown
 import rospy
 from std_msgs.msg import String, Header
@@ -7,9 +8,10 @@ import syntactic_extract
 import gensim
 import numpy as np
 import rospkg
+import online_classificaiton
 
 NODE_NAME = 'text_analysis'
-WORDVEC_MODEL = '/wordvec_model/100features_20context_20mincount_zht'
+WORDVEC_MODEL = '/model/100features_20context_20mincount_zht'
 sentence_list = []  # save the talker's talks
 
 rospack = rospkg.RosPack()
@@ -37,19 +39,20 @@ def call_back(data):
     sentence_list.append(data.text)
     # print(str(sentence_list).decode('string_escape'))
     publisher = rospy.Publisher('chatbot/output', ChatterStamped, queue_size=1)
-
+    test_online_classify = online_classificaiton.online_classification()
     if data.text == 'analysis':
         sentence_list.pop()
-        for s in sentence_list:
-            if s[0].isalpha():
-                pass
-            else:
-                sentence_msg = str(s) + '\n'
-                syntactic_msg = 'postag_score: ' + np.array2string(syntactic_extract.pos_tag_analysis(s),
-                                                                   precision=2, separator=' ', suppress_small=True) + '\n'
-                semantic_msg = 'sentence_vector: ' + np.array2string(syntactic_extract.semantic_analysis(s, w2v_model),
-                                                                     precision=2, separator=' ', suppress_small=True) + '\n'
-                pub_to_chatbot(sentence_msg + syntactic_msg + semantic_msg)
+        s = sentence_list.pop()
+        if s[0].isalpha():
+            pass
+        else:
+            sentence_msg = str(s) + '\n'
+            syntactic_msg = 'postag_score: ' + np.array2string(syntactic_extract.pos_tag_analysis(s),
+                                                                precision=2, separator=' ', suppress_small=True) + '\n'
+            semantic_msg = 'sentence_vector: ' + np.array2string(syntactic_extract.semantic_analysis(s, w2v_model),
+                                                                    precision=2, separator=' ', suppress_small=True) + '\n'
+            classification_result = 'result: ' + test_online_classify.normal_analysis(s)
+            pub_to_chatbot(sentence_msg + syntactic_msg + semantic_msg + classification_result)
 
 
 def text_analysis():
