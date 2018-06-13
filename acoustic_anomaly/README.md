@@ -1,8 +1,10 @@
-Subscribe 'audio_stream_raw', and publish 'Acoustic_Anomaly' for acoustic anomaly detection.
-
+# Subscribe /binaural_audio/source_stream', and publish to 'acoustic_anomaly' and 'chatbot/output' for acoustic anomaly detection.
 
 **Usage:**
+### Launch acoustic_anomaly:
 $roslaunch acoustic_anomaly publish_acoustic_anomaly.launch
+### Visualize in rqt
+$roslaunch acoustic_anomaly visualize_acoustic_anomaly.launch
 
 
 **Requirements:**
