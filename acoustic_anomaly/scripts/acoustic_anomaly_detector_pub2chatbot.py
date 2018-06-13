@@ -7,13 +7,12 @@ import rospkg
 import numpy as np
 import threading
 
-from collections import deque
 from keras.models import load_model
 from python_speech_features import mfcc
 from sklearn.metrics.pairwise import cosine_similarity
 
 from std_msgs.msg import String, Header
-from acoustic_anomaly.msg import AnomalyInfo
+from std_msgs.msg import Float64MultiArray
 from chatbot.msg import ChatterStamped
 from binaural_microphone.msg import BinauralAudio
 
@@ -22,7 +21,6 @@ rospack = rospkg.RosPack()
 path = rospack.get_path('acoustic_anomaly')
 NODE_NAME = 'acoustic_anomaly_detector'
 frames = []
-timecode_q = deque()
 fs = 22050
 event = threading.Event()
 
@@ -49,8 +47,7 @@ def pub_to_chatbot(text, priority=0):
 
 
 def storing_from_array(data):
-    global frames, timecode_q
-    timecode_q.append(data.header.stamp)
+    global frames
     frames += data.left_channel
     assert data.sample_rate == fs, 'sample rate mismatch!'
     if len(frames) > 2205:
@@ -88,40 +85,29 @@ def model():
             return 'NORMAL'
 
 
-def talker():
+def get_raw_audio():
     TOPIC_NAME = '/binaural_audio/source_stream'
     rospy.Subscriber(TOPIC_NAME, BinauralAudio, storing_from_array)
 
-    global publisher, timecode_q
+
+def talker():
+    global publisher
     publisher = rospy.Publisher('chatbot/output', ChatterStamped, queue_size=1)
     pub_to_chatbot(text='start monitoring ...')
-    
-    pub = rospy.Publisher('acoustic_anomaly', AnomalyInfo, queue_size=10)
+
+    pub = rospy.Publisher('Acoustic_Anomaly', Float64MultiArray, queue_size=10)
+    array = Float64MultiArray()
 
     def process():
         ab = model()
         if ab:
             if ab == 'NORMAL':
-                message = AnomalyInfo(
-                    header=Header(
-                        stamp=rospy.Time.now()
-                        ),
-                    timecode=timecode_q.popleft(),
-                    text=ab,
-                    anomaly_score=0.,
-                )
+                array.data = [0]
             else:
+                array.data = [1]
                 pub_to_chatbot(text=ab)
-                message = AnomalyInfo(
-                    header=Header(
-                        stamp=rospy.Time.now()
-                        ),
-                    timecode=timecode_q.popleft(),
-                    text=ab,
-                    anomaly_score=1.,
-                )
             rospy.loginfo(ab)
-            pub.publish(message)
+            pub.publish(array)
             
 
     while not rospy.is_shutdown():
@@ -134,6 +120,7 @@ def talker():
 if __name__ == '__main__':
     try:
         rospy.init_node(NODE_NAME, anonymous=True)
+        get_raw_audio()
         talker()
     except rospy.ROSInterruptException:
         pass
